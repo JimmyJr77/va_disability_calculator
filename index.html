@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VA Disability Calculator</title>
+<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-5">
+    <h2 style="font-weight: bold;">VA Disability Rating Calculator</h2>
+    <form id="disability-form">
+        <div id="condition-list">
+            <!-- Dynamic condition elements will be inserted here -->
+        </div>
+        <button type="button" class="btn btn-primary" onclick="addCondition()">Add Another Condition</button>
+        <button type="submit" class="btn btn-success">Calculate</button>
+    </form>
+    <div id="result" style="margin-top:30px; margin-bottom:30px;"></div>
+    <div id="summary" style="margin-top:30px;"></div></div>
+
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
+
