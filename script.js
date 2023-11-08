@@ -3,7 +3,10 @@ let conditionCount = 0; // Initialize the condition counter
 // Function to handle form submission
 document.getElementById('disability-form').onsubmit = function(event) {
     event.preventDefault();
-    calculateTotalDisability();
+    let totalRating = calculateTotalDisability(); // Capture the returned total rating
+    let dependents = parseInt(document.getElementById('dependents').value);
+    let compensation = calculateCompensation(totalRating, dependents);
+    document.getElementById('compensation-result').innerHTML = `<strong>Estimated Compensation: $${compensation} per month</strong>`;
 };
 
 // Function to add a new condition
@@ -42,103 +45,129 @@ function addCondition() {
         </div>
     `;
 
-    // Insert the new condition before the buttons
-    let conditionListDiv = document.getElementById('condition-list');
-    conditionListDiv.insertAdjacentHTML('beforeend', newCondition);
-    conditionCount++; // Increment the condition count
+    document.getElementById('condition-list').insertAdjacentHTML('beforeend', newCondition);
+    conditionCount++;
 }
 
 // Function to enable or disable the side dropdown based on extremities selection
 function toggleSide(index) {
     let extremitiesId = `extremities${index}`;
     let sideId = `side${index}`;
-    let extremitiesValue = document.getElementById(extremitiesId).value;
-    document.getElementById(sideId).disabled = (extremitiesValue === "None");
+    document.getElementById(sideId).disabled = document.getElementById(extremitiesId).value === "None";
 }
 
-// Function to calculate the total disability
 function calculateTotalDisability() {
-    let allDisabilities = [];
+    let disabilities = [];
     let summaryDetails = []; // For detailed summary of calculations
 
-    // Collect all percentages and sort them from highest to lowest
+    // Collect all percentages
     for (let i = 0; i < conditionCount; i++) {
         let percentage = parseInt(document.getElementById(`percentage${i}`).value) || 0;
         let extremity = document.getElementById(`extremities${i}`).value;
         let side = document.getElementById(`side${i}`).value;
         let conditionName = document.getElementById(`condition${i}`).value || `Condition ${i + 1}`;
-
-        allDisabilities.push({ condition: conditionName, percentage: percentage, extremity: extremity, side: side });
+        disabilities.push({ condition: conditionName, percentage: percentage, extremity: extremity, side: side });
     }
 
     // Sort all conditions from highest to lowest percentage
-    allDisabilities.sort((a, b) => b.percentage - a.percentage);
+    disabilities.sort((a, b) => b.percentage - a.percentage);
 
-    // Calculate combined rating for all conditions
-    let combinedRating = 0;
-    summaryDetails.push('<strong>Base Disability Calculations:</strong>');
-    allDisabilities.forEach((disability, index) => {
-        summaryDetails.push(`${index + 1}. ${disability.condition}: ${disability.percentage}%`);
-        combinedRating = combineRatings(combinedRating, disability.percentage);
-    });
-    summaryDetails.push(`Combined rating before bilateral adjustment: ${combinedRating.toFixed(2)}%`);
+    // Initialize bilateral conditions object
+    let bilateralConditions = { Upper: [], Lower: [] };
+    let nonBilateralConditions = [];
 
-    // Bilateral factor calculations for extremities after standard scoring model
-    let bilateralAdjustmentTotal = 0;
-    ['Upper', 'Lower'].forEach((extremityType) => {
-        let extremityConditions = allDisabilities.filter(ed => ed.extremity === extremityType);
-        let leftSide = extremityConditions.filter(ed => ed.side === 'Left');
-        let rightSide = extremityConditions.filter(ed => ed.side === 'Right');
-        
-        summaryDetails.push(`<strong>${extremityType} Extremity Bilateral Factor Conditions:</strong>`);
-        if (leftSide.length > 0 || rightSide.length > 0) {
-            extremityConditions.forEach(condition => {
-                summaryDetails.push(`${condition.condition} (${condition.side}): ${condition.percentage}%`);
-            });
-            if (leftSide.length > 0 && rightSide.length > 0) {
-                // Only calculate if there are conditions on both sides
-                let bilateralFactor = calculateBilateralAdjustment(extremityConditions);
-                bilateralAdjustmentTotal += bilateralFactor;
-                summaryDetails.push(`${extremityType} Extremity Bilateral Adjustment: ${bilateralFactor.toFixed(2)}%`);
-            } else {
-                summaryDetails.push(`${extremityType} Extremity Bilateral Adjustment: No bilateral issues found.`);
-            }
+    // Classify each disability as bilateral or non-bilateral
+    disabilities.forEach(disability => {
+        if (disability.extremity !== "None" && disability.side !== "N/A") {
+            bilateralConditions[disability.extremity].push(disability);
         } else {
-            summaryDetails.push(`${extremityType} Extremity Bilateral Adjustment: No bilateral issues found.`);
+            nonBilateralConditions.push(disability);
         }
     });
 
-    // Apply bilateral adjustments to the combined rating
-    let totalDisabilityRating = Math.min(Math.round(combinedRating + bilateralAdjustmentTotal), 100);
+    // Check for bilateral pairs and move non-paired conditions to nonBilateralConditions
+    ['Upper', 'Lower'].forEach(extremity => {
+        let leftSide = bilateralConditions[extremity].filter(cond => cond.side === 'Left');
+        let rightSide = bilateralConditions[extremity].filter(cond => cond.side === 'Right');
+        if (!(leftSide.length && rightSide.length)) {
+            nonBilateralConditions = [...nonBilateralConditions, ...leftSide, ...rightSide];
+            bilateralConditions[extremity] = []; // Clear out the extremity as it's not bilateral
+        }
+    });
 
-    // Append total combined rating to the summary
-    summaryDetails.push(`<strong>Total Combined Rating: ${totalDisabilityRating}%</strong>`);
+    // Calculate combined rating for non-bilateral conditions
+    let baseDisabilityRating = nonBilateralConditions.reduce((combinedRating, disability) => {
+        return combineRatings(combinedRating, disability.percentage);
+    }, 0);
 
-    // Output the summary details
-    document.getElementById('result').innerText = `Total Combined Rating: ${totalDisabilityRating}%`;
+    summaryDetails.push('<strong>Base Disability Calculations:</strong>');
+    nonBilateralConditions.forEach((disability, index) => {
+        summaryDetails.push(`${index + 1}. ${disability.condition}: ${disability.percentage}%`);
+    });
+    summaryDetails.push(`Base disability rating: ${baseDisabilityRating}%`);
+
+    // Calculate and apply bilateral adjustments for Upper and Lower extremities
+    ['Upper', 'Lower'].forEach(extremity => {
+        if (bilateralConditions[extremity].length > 0) {
+            summaryDetails.push(`<strong>${extremity} Extremity Bilateral Calculations:</strong>`);
+            let bilateralSummary = calculateBilateralRating(bilateralConditions[extremity]);
+            bilateralSummary.forEach((bilateralCondition, index) => {
+                if (index < bilateralSummary.length - 3) {
+                    summaryDetails.push(`${index + 1}. ${bilateralCondition.condition}: ${bilateralCondition.percentage}%`);
+                }
+            });
+            summaryDetails.push(`Subtotal for ${extremity} extremity bilateral conditions: ${bilateralSummary[bilateralSummary.length - 3].percentage}%`);
+            summaryDetails.push(`Bilateral Condition Adjustment: ${bilateralSummary[bilateralSummary.length - 2].percentage}%`);
+            summaryDetails.push(`Total Disability Rating for ${extremity} Extremity: ${bilateralSummary[bilateralSummary.length - 1].percentage}%`);
+            baseDisabilityRating = combineRatings(baseDisabilityRating, bilateralSummary[bilateralSummary.length - 1].percentage);
+        }
+    });
+
+    let totalDisabilityRating = Math.round(baseDisabilityRating / 10) * 10;
+
+    summaryDetails.push(`<strong>Total Disability Rating (Unrounded): ${baseDisabilityRating}%</strong>`);
+    summaryDetails.push(`<strong>Total Disability Rating (Rounded): ${totalDisabilityRating}%</strong>`);
+
+    document.getElementById('result').innerText = `Rounded Total Combined Rating: ${totalDisabilityRating}%`;
     document.getElementById('summary').innerHTML = summaryDetails.join('<br>');
+    
+    return totalDisabilityRating; // Return the total rating for compensation calculation
 }
 
-// Calculate bilateral adjustment
-function calculateBilateralAdjustment(extremityConditions) {
-    let leftSide = extremityConditions.filter(ed => ed.side === 'Left').sort((a, b) => b.percentage - a.percentage);
-    let rightSide = extremityConditions.filter(ed => ed.side === 'Right').sort((a, b) => b.percentage - a.percentage);
-    let bilateralAdjustment = 0;
-
-    if (leftSide.length > 0 && rightSide.length > 0) {
-        // Calculate the bilateral adjustment using the largest percentage from each side
-        bilateralAdjustment = combineRatings(leftSide[0].percentage, rightSide[0].percentage) * 0.1; // 10% of the combined extremity rating
-    }
-    return bilateralAdjustment;
+// Function to calculate compensation
+function calculateCompensation(rating, dependents) {
+    // Placeholder for the logic to determine compensation based on rating and dependents
+    // This should be replaced with the actual logic based on the current VA compensation rates
+    let baseCompensation = 100; // Example base compensation
+    let additionalDependentAmount = 50; // Example additional amount per dependent
+    let totalCompensation = baseCompensation + (dependents * additionalDependentAmount);
+    
+    return totalCompensation;
 }
 
-// Helper function to combine two ratings
-function combineRatings(rating1, rating2) {
-    let combined = 100 - ((100 - rating1) * (100 - rating2) / 100);
-    return combined > 100 ? 100 : combined; // Ensure the combined rating doesn't exceed 100%
+// Function to calculate bilateral rating and adjustment
+function calculateBilateralRating(conditions) {
+    let subtotalLeft = 0, subtotalRight = 0;
+    conditions.forEach(condition => {
+        if (condition.side === 'Left') {
+            subtotalLeft = combineRatings(subtotalLeft, condition.percentage);
+        } else if (condition.side === 'Right') {
+            subtotalRight = combineRatings(subtotalRight, condition.percentage);
+        }
+    });
+
+    let subtotal = combineRatings(subtotalLeft, subtotalRight);
+    let adjustment = Math.round(subtotal * 0.1);
+    let total = subtotal + adjustment;
+
+    return [...conditions, { condition: 'Subtotal', percentage: subtotal }, { condition: 'Adjustment', percentage: adjustment }, { condition: 'Total', percentage: total }];
 }
 
-// Add initial condition on page load
+function combineRatings(currentRating, newRating) {
+    let combinedRating = 100 - ((100 - currentRating) * (100 - newRating) / 100);
+    return Math.round(combinedRating);
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     addCondition(); // Add the first condition input
 });
